@@ -26,12 +26,6 @@ export class VideoService {
    * @param accessToken - Access token for authentication
    */
   constructor(baseUrl: string, accessToken: string) {
-    console.error(
-      "Creating VideoService instance with baseUrl:",
-      baseUrl,
-      "and accessToken:",
-      accessToken
-    );
     this.baseUrl = baseUrl;
     this.accessToken = accessToken;
   }
@@ -45,10 +39,6 @@ export class VideoService {
     prompt: string
   ): Promise<MediaGenerationResponse> {
     try {
-      console.error(
-        "Generating text2image with accessToken:",
-        this.accessToken
-      );
       const response = await fetch(`${this.baseUrl}/api/generate/text2image`, {
         method: "POST",
         headers: {

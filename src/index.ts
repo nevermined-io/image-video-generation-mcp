@@ -128,13 +128,11 @@ server.tool(
       };
     }
 
-    console.error("Getting video service instance");
     // Get video service instance
     const videoService = await paymentsManager.getVideoService(
       NEVERMINED_CONFIG.AGENT_DID
     );
 
-    console.error("Generating image");
     // Generate the image
     const result = await videoService.generateText2Image(prompt);
 
@@ -418,7 +416,6 @@ async function main(): Promise<void> {
   try {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Video Generation MCP Server running on stdio");
   } catch (error: unknown) {
     console.error(
       "Error starting server:",

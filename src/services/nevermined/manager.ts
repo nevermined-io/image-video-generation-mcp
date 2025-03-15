@@ -23,7 +23,6 @@ export class PaymentsManager {
   private static instance: PaymentsManager;
 
   private constructor() {
-    console.error("Creating PaymentsManager instance");
     this.payments = Payments.getInstance({
       nvmApiKey: NEVERMINED_CONFIG.API_KEY,
       environment: NEVERMINED_CONFIG.ENVIRONMENT as EnvironmentName,
@@ -34,7 +33,6 @@ export class PaymentsManager {
    * Gets the singleton instance of PaymentsManager
    */
   public static getInstance(): PaymentsManager {
-    console.error("Getting instance of PaymentsManager");
     if (!PaymentsManager.instance) {
       PaymentsManager.instance = new PaymentsManager();
     }
@@ -52,12 +50,10 @@ export class PaymentsManager {
     agentDid: string
   ): Promise<boolean> {
     try {
-      console.error("Checking balance");
       const balanceResult = await this.payments.getPlanBalance(planDid);
       const agentDDO = await this.payments.getAssetDDO(agentDid);
       const minRequired = this.extractRequiredBalance(agentDDO);
-      console.error("Balance result:", balanceResult);
-      console.error("Min required:", minRequired);
+
       return Number(balanceResult.balance) >= minRequired;
     } catch (error) {
       console.error("Error checking balance:", error);
@@ -74,9 +70,6 @@ export class PaymentsManager {
     planDid: string
   ): Promise<{ success: boolean; message?: string }> {
     try {
-      console.error("What's in this.payments?");
-      console.error(this.payments);
-      console.error(planDid);
       const purchaseResult = await this.payments.orderPlan(planDid);
 
       if (!purchaseResult || !purchaseResult.success) {
@@ -108,7 +101,6 @@ export class PaymentsManager {
     agentDid: string
   ): Promise<ServiceAccessConfig> {
     try {
-      console.error("Getting service access for agent:", agentDid);
       const accessConfig = await this.payments.query.getServiceAccessConfig(
         agentDid
       );
@@ -136,9 +128,8 @@ export class PaymentsManager {
    * @returns Promise<VideoService> - Configured video service instance
    */
   public async getVideoService(agentDid: string): Promise<VideoService> {
-    console.error("Getting video service");
     const accessConfig = await this.getServiceAccess(agentDid);
-    console.error("Access config:", accessConfig);
+
     return new VideoService(
       accessConfig.neverminedProxyUri,
       accessConfig.accessToken
