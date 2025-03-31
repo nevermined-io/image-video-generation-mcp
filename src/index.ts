@@ -9,11 +9,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { VideoService } from "./services/video/index.js";
 import {
-  PaymentsManager,
-  NEVERMINED_CONFIG,
-  validateConfig,
-} from "./services/nevermined/index.js";
+  NeverminedMCP,
+  NeverminedConfig,
+} from "@nevermined-io/mcp-payments-library";
 import fetch from "node-fetch";
 import axios from "axios";
 
@@ -21,17 +21,46 @@ import axios from "axios";
 // @ts-ignore
 global.fetch = fetch;
 
-// Validate Nevermined configuration
-validateConfig();
+const neverminedConfig: NeverminedConfig = {
+  apiKey: process.env.NVM_API_KEY!,
+  environment: "testing",
+  planDid:
+    "did:nv:bbc5556a932bdeb88bbe45045530e491ad428b351fb43c8bd4be04dba7878a3d",
+  agentDid:
+    "did:nv:2fa0a0c9ec6cd923827fe3657298ac9d8cd8cafb07120b10e94b2a26d962a793",
+};
 
-// Initialize MCP server with metadata
+// Initialize Nevermined library
+const neverminedMCP = new NeverminedMCP(neverminedConfig);
+
+// Initialize MCP server
 const server = new McpServer({
   name: "video-generation",
   version: "1.0.0",
 });
 
-// Initialize PaymentsManager
-const paymentsManager = PaymentsManager.getInstance();
+/**
+ * Utility function to download media and convert to base64
+ * @param url - URL of the media to download
+ * @returns Promise resolving to base64 string or null if file is too large
+ */
+async function downloadAsBase64(url: string): Promise<string | null> {
+  try {
+    const response = await axios.get(url, { responseType: "arraybuffer" });
+    const contentLength = parseInt(response.headers["content-length"] || "0");
+
+    // If file is larger than 1MB, return null to indicate URL should be used instead
+    if (contentLength > 1024 * 1024) {
+      return null;
+    }
+
+    const base64 = Buffer.from(response.data).toString("base64");
+    return base64;
+  } catch (error) {
+    console.error("Error downloading media:", error);
+    return null;
+  }
+}
 
 /**
  * Tool for purchasing a subscription plan
@@ -45,7 +74,7 @@ server.tool(
   },
   async ({ planDid }: { planDid: string }) => {
     try {
-      const purchaseResult = await paymentsManager.orderPlan(planDid);
+      const purchaseResult = await neverminedMCP.purchasePlan(planDid);
 
       if (!purchaseResult.success) {
         return {
@@ -90,7 +119,6 @@ server.tool(
 /**
  * Tool for generating images from text prompts
  * Uses AI models to create images based on textual descriptions
- * Includes credit checking and authentication via Nevermined
  */
 server.tool(
   "text2image",
@@ -100,9 +128,9 @@ server.tool(
   },
   async ({ prompt }: { prompt: string }) => {
     // Check balance
-    const hasBalance = await paymentsManager.checkBalance(
-      NEVERMINED_CONFIG.PLAN_DID,
-      NEVERMINED_CONFIG.AGENT_DID
+    const hasBalance = await neverminedMCP.checkBalance(
+      neverminedConfig.planDid,
+      neverminedConfig.agentDid
     );
 
     if (!hasBalance) {
@@ -115,7 +143,7 @@ server.tool(
           {
             type: "text",
             text: JSON.stringify(
-              { planDid: NEVERMINED_CONFIG.PLAN_DID },
+              { planDid: neverminedConfig.planDid },
               null,
               2
             ),
@@ -123,14 +151,18 @@ server.tool(
         ],
         metadata: {
           needsPurchase: true,
-          planDid: NEVERMINED_CONFIG.PLAN_DID,
+          planDid: neverminedConfig.planDid,
         },
       };
     }
 
-    // Get video service instance
-    const videoService = await paymentsManager.getVideoService(
-      NEVERMINED_CONFIG.AGENT_DID
+    // Get service access configuration
+    const accessConfig = await neverminedMCP.getServiceAccess(
+      neverminedConfig.agentDid
+    );
+    const videoService = new VideoService(
+      accessConfig.neverminedProxyUri,
+      accessConfig.accessToken
     );
 
     // Generate the image
@@ -150,25 +182,25 @@ server.tool(
       };
     }
 
-    // Download and convert image to base64 for direct display
+    // Download and convert image to base64 if not too large
     const imageBase64 = await downloadAsBase64(result.imageUrl);
 
     return {
       content: [
-        {
-          type: "resource",
-          resource: imageBase64
-            ? {
+        imageBase64
+          ? {
+              type: "image",
+              data: imageBase64,
+              mimeType: "image/png",
+            }
+          : {
+              type: "resource",
+              resource: {
                 uri: result.imageUrl,
-                blob: imageBase64,
-                mimeType: "image/jpeg",
-              }
-            : {
-                uri: result.imageUrl,
-                text: "Image too large to display directly",
-                mimeType: "image/jpeg",
+                text: "Generated image",
+                mimeType: "image/png",
               },
-        },
+            },
       ],
     };
   }
@@ -194,9 +226,9 @@ server.tool(
   }) => {
     try {
       // Check balance
-      const hasBalance = await paymentsManager.checkBalance(
-        NEVERMINED_CONFIG.PLAN_DID,
-        NEVERMINED_CONFIG.AGENT_DID
+      const hasBalance = await neverminedMCP.checkBalance(
+        neverminedConfig.planDid,
+        neverminedConfig.agentDid
       );
 
       if (!hasBalance) {
@@ -209,7 +241,7 @@ server.tool(
             {
               type: "text",
               text: JSON.stringify(
-                { planDid: NEVERMINED_CONFIG.PLAN_DID },
+                { planDid: neverminedConfig.planDid },
                 null,
                 2
               ),
@@ -217,14 +249,18 @@ server.tool(
           ],
           metadata: {
             needsPurchase: true,
-            planDid: NEVERMINED_CONFIG.PLAN_DID,
+            planDid: neverminedConfig.planDid,
           },
         };
       }
 
-      // Get video service instance
-      const videoService = await paymentsManager.getVideoService(
-        NEVERMINED_CONFIG.AGENT_DID
+      // Get service access configuration
+      const accessConfig = await neverminedMCP.getServiceAccess(
+        neverminedConfig.agentDid
+      );
+      const videoService = new VideoService(
+        accessConfig.neverminedProxyUri,
+        accessConfig.accessToken
       );
 
       // Transform the image
@@ -247,32 +283,38 @@ server.tool(
         };
       }
 
-      // Download and convert transformed image
+      // Download and convert transformed image if not too large
       const imageBase64 = await downloadAsBase64(result.imageUrl);
 
       return {
         content: [
-          {
-            type: "resource",
-            resource: imageBase64
-              ? {
+          imageBase64
+            ? {
+                type: "image",
+                data: imageBase64,
+                mimeType: "image/png",
+              }
+            : {
+                type: "resource",
+                resource: {
                   uri: result.imageUrl,
-                  blob: imageBase64,
-                  mimeType: "image/jpeg",
-                }
-              : {
-                  uri: result.imageUrl,
-                  text: "Image too large to display directly",
-                  mimeType: "image/jpeg",
+                  text: "Transformed image",
+                  mimeType: "image/png",
                 },
-          },
+              },
         ],
       };
     } catch (error) {
-      console.error("Error transforming image:", error);
       return {
         isError: true,
-        content: [{ type: "text", text: "Error transforming image" }],
+        content: [
+          {
+            type: "text",
+            text: `Error in image transformation: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
       };
     }
   }
@@ -307,9 +349,9 @@ server.tool(
     duration?: number;
   }) => {
     // Check balance
-    const hasBalance = await paymentsManager.checkBalance(
-      NEVERMINED_CONFIG.PLAN_DID,
-      NEVERMINED_CONFIG.AGENT_DID
+    const hasBalance = await neverminedMCP.checkBalance(
+      neverminedConfig.planDid,
+      neverminedConfig.agentDid
     );
 
     if (!hasBalance) {
@@ -322,7 +364,7 @@ server.tool(
           {
             type: "text",
             text: JSON.stringify(
-              { planDid: NEVERMINED_CONFIG.PLAN_DID },
+              { planDid: neverminedConfig.planDid },
               null,
               2
             ),
@@ -330,14 +372,18 @@ server.tool(
         ],
         metadata: {
           needsPurchase: true,
-          planDid: NEVERMINED_CONFIG.PLAN_DID,
+          planDid: neverminedConfig.planDid,
         },
       };
     }
 
-    // Get video service instance
-    const videoService = await paymentsManager.getVideoService(
-      NEVERMINED_CONFIG.AGENT_DID
+    // Get service access configuration
+    const accessConfig = await neverminedMCP.getServiceAccess(
+      neverminedConfig.agentDid
+    );
+    const videoService = new VideoService(
+      accessConfig.neverminedProxyUri,
+      accessConfig.accessToken
     );
 
     // Generate the video
@@ -361,23 +407,16 @@ server.tool(
       };
     }
 
-    const videoBase64 = await downloadAsBase64(result.url);
-
+    // Videos are typically large, so we'll always return the URL
     return {
       content: [
         {
           type: "resource",
-          resource: videoBase64
-            ? {
-                uri: result.url,
-                blob: videoBase64,
-                mimeType: "video/mp4",
-              }
-            : {
-                uri: result.url,
-                text: "Video too large to display directly",
-                mimeType: "video/mp4",
-              },
+          resource: {
+            uri: result.url,
+            text: "Generated video",
+            mimeType: "video/mp4",
+          },
         },
       ],
     };
@@ -385,42 +424,14 @@ server.tool(
 );
 
 /**
- * Utility function to download media content and convert it to base64
- * Supports both images and videos. If content is larger than 1MB, returns null
- *
- * @param url - The URL of the media to download
- * @returns Promise with the base64 encoded string of the media content or null if too large
+ * Main function to start the MCP server
  */
-async function downloadAsBase64(url: string): Promise<string | null> {
-  try {
-    const response = await axios.get(url, { responseType: "arraybuffer" });
-
-    // Check if content is larger than 1MB
-    if (response.data.byteLength > 1024 * 1024) {
-      console.error("Content is larger than 1MB, skipping base64 conversion");
-      return null;
-    }
-
-    return Buffer.from(response.data, "binary").toString("base64");
-  } catch (error) {
-    console.error("Error downloading media:", error);
-    throw error;
-  }
-}
-
-/**
- * Main function to initialize and start the MCP server
- * Sets up stdio transport for communication
- */
-async function main(): Promise<void> {
+async function main() {
   try {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-  } catch (error: unknown) {
-    console.error(
-      "Error starting server:",
-      error instanceof Error ? error.message : String(error)
-    );
+  } catch (error) {
+    console.error("Error starting MCP server:", error);
     process.exit(1);
   }
 }
