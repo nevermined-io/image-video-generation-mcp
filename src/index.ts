@@ -16,6 +16,7 @@ import {
 } from "@nevermined-io/mcp-payments-library";
 import fetch from "node-fetch";
 import axios from "axios";
+import sharp from "sharp";
 
 // Make fetch available globally for the MCP SDK
 // @ts-ignore
@@ -48,10 +49,44 @@ async function downloadAsBase64(url: string): Promise<string | null> {
   try {
     const response = await axios.get(url, { responseType: "arraybuffer" });
     const contentLength = parseInt(response.headers["content-length"] || "0");
+    const contentType = response.headers["content-type"] || "";
+    console.error("contentLength", contentLength);
 
-    // If file is larger than 1MB, return null to indicate URL should be used instead
+    // Check if it's an image that can be compressed
+    const isImage = contentType.startsWith("image/");
+
+    // If content is too large (>1MB)
     if (contentLength > 1024 * 1024) {
-      return null;
+      // If it's an image, try to compress it
+      if (isImage) {
+        try {
+          console.error("Compressing large image...");
+          // Compress image using sharp
+          const compressed = await sharp(Buffer.from(response.data))
+            .resize(1024) // Resize to max width of 1024px (maintaining aspect ratio)
+            .jpeg({ quality: 80 }) // Convert to JPEG with 80% quality
+            .toBuffer();
+
+          // Check if compression reduced size below 1MB
+          if (compressed.length <= 1024 * 1024) {
+            console.error(
+              `Image compressed from ${contentLength} to ${compressed.length} bytes`
+            );
+            return compressed.toString("base64");
+          } else {
+            console.error(
+              "Image still too large after compression, returning URL"
+            );
+            return null;
+          }
+        } catch (compressionError) {
+          console.error("Error compressing image:", compressionError);
+          return null;
+        }
+      } else {
+        // Not an image or can't compress
+        return null;
+      }
     }
 
     const base64 = Buffer.from(response.data).toString("base64");

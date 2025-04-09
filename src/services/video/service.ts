@@ -26,7 +26,7 @@ export class VideoService {
    * @param accessToken - Access token for authentication
    */
   constructor(baseUrl: string, accessToken: string) {
-    this.baseUrl = baseUrl;
+    this.baseUrl = baseUrl.replace("https://", "http://");
     this.accessToken = accessToken;
   }
 
