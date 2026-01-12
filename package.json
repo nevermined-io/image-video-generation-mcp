@@ -19,7 +19,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@nevermined-io/mcp-payments-library": "git+https://github.com/nevermined-io/mcp-payments-library",
     "@nevermined-io/payments": "^0.9.3",
     "@types/sharp": "^0.31.1",
